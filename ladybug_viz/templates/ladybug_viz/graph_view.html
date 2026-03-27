@@ -1,0 +1,212 @@
+{% extends "ladybug_viz/base.html" %}
+{% load static %}
+
+{% block title %}{{ db_name }} — Graph{% endblock %}
+{% block nav_graph_active %}active{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sigma.js/2.4.0/sigma.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/graphology/0.25.4/graphology.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title" id="page-title">
+    <span class="page-header__icon">🔗</span>
+    Graph Visualisation
+  </h1>
+  <p class="page-header__subtitle">Interactive node & relationship explorer powered by Sigma.js</p>
+</div>
+
+<div class="graph-controls" id="graph-controls">
+  <label for="node-limit-input" class="graph-controls__label">Node limit per table:</label>
+  <input type="number" id="node-limit-input" class="input" value="200" min="10" max="2000" step="10">
+  <button class="btn btn--primary" id="reload-graph-btn">Reload</button>
+  <span class="graph-controls__status" id="graph-status">Loading…</span>
+</div>
+
+<div class="graph-legend" id="graph-legend"></div>
+
+<div id="sigma-container" class="sigma-container"></div>
+
+<div class="graph-tooltip" id="graph-tooltip" style="display:none;"></div>
+
+<script>
+(function() {
+  const DB_NAME = "{{ db_name }}";
+  const container = document.getElementById("sigma-container");
+  const status = document.getElementById("graph-status");
+  const legend = document.getElementById("graph-legend");
+  const tooltip = document.getElementById("graph-tooltip");
+  const limitInput = document.getElementById("node-limit-input");
+  const reloadBtn = document.getElementById("reload-graph-btn");
+
+  // Curated colour palette for node table types
+  const PALETTE = [
+    "#6366f1", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6",
+    "#06b6d4", "#ec4899", "#84cc16", "#ef4444", "#14b8a6",
+  ];
+
+  let sigmaInstance = null;
+
+  async function loadGraph() {
+    status.textContent = "Loading…";
+    const nodeLimit = parseInt(limitInput.value) || 200;
+    const url = `/ladybug-viz/api/${DB_NAME}/graph?node_limit=${nodeLimit}`;
+
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+
+      // Destroy previous instance
+      if (sigmaInstance) {
+        sigmaInstance.kill();
+        sigmaInstance = null;
+      }
+
+      const graph = new graphology.Graph();
+
+      // Discover unique table types for colour assignment
+      const tableTypes = [...new Set(data.nodes.map(n => n.table))];
+
+      // Build legend
+      legend.innerHTML = tableTypes.map((t, i) =>
+        `<span class="legend-item">
+          <span class="legend-dot" style="background:${PALETTE[i % PALETTE.length]}"></span>
+          ${t}
+        </span>`
+      ).join("");
+
+      // Add nodes in a circular layout
+      const totalNodes = data.nodes.length;
+      data.nodes.forEach((node, i) => {
+        const angle = (2 * Math.PI * i) / totalNodes;
+        const radius = 100 + Math.random() * 20;
+        const color = PALETTE[node.tableIndex % PALETTE.length];
+        graph.addNode(node.id, {
+          label: node.label,
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          size: 6,
+          color: color,
+          table: node.table,
+          attributes: node.attributes,
+        });
+      });
+
+      // Add edges
+      let edgeIdx = 0;
+      data.edges.forEach(edge => {
+        if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
+          const key = `e${edgeIdx++}`;
+          graph.addEdge(edge.source, edge.target, {
+            label: edge.label,
+            size: 1.5,
+            color: "rgba(255,255,255,0.15)",
+            type: "arrow",
+          });
+        }
+      });
+
+      // Apply force layout (simple spring embedding)
+      forceLayout(graph, 100);
+
+      // Create Sigma instance
+      sigmaInstance = new Sigma(graph, container, {
+        renderLabels: true,
+        labelColor: { color: "#e2e8f0" },
+        labelSize: 12,
+        defaultEdgeColor: "rgba(255,255,255,0.12)",
+        defaultNodeColor: "#6366f1",
+        minCameraRatio: 0.1,
+        maxCameraRatio: 10,
+      });
+
+      // Hover tooltip
+      sigmaInstance.on("enterNode", ({ node }) => {
+        const attrs = graph.getNodeAttributes(node);
+        let html = `<strong>${attrs.label}</strong><br><span class="tooltip-table">${attrs.table}</span>`;
+        if (attrs.attributes) {
+          for (const [k, v] of Object.entries(attrs.attributes)) {
+            html += `<br><span class="tooltip-key">${k}:</span> ${v}`;
+          }
+        }
+        tooltip.innerHTML = html;
+        tooltip.style.display = "block";
+      });
+      sigmaInstance.on("leaveNode", () => {
+        tooltip.style.display = "none";
+      });
+      container.addEventListener("mousemove", (e) => {
+        tooltip.style.left = (e.offsetX + 12) + "px";
+        tooltip.style.top = (e.offsetY + 12) + "px";
+      });
+
+      status.textContent = `${data.nodes.length} nodes, ${data.edges.length} edges`;
+    } catch (err) {
+      status.textContent = "Error: " + err.message;
+    }
+  }
+
+  /** Simple force-directed layout (Fruchterman-Reingold-ish). */
+  function forceLayout(graph, iterations) {
+    const nodes = graph.nodes();
+    const k = Math.sqrt((300 * 300) / nodes.length);
+    const temp0 = 50;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      const temp = temp0 * (1 - iter / iterations);
+      const disp = {};
+      nodes.forEach(n => { disp[n] = { dx: 0, dy: 0 }; });
+
+      // Repulsion
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = graph.getNodeAttributes(nodes[i]);
+          const b = graph.getNodeAttributes(nodes[j]);
+          let dx = a.x - b.x;
+          let dy = a.y - b.y;
+          const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.01);
+          const force = (k * k) / dist;
+          dx = (dx / dist) * force;
+          dy = (dy / dist) * force;
+          disp[nodes[i]].dx += dx;
+          disp[nodes[i]].dy += dy;
+          disp[nodes[j]].dx -= dx;
+          disp[nodes[j]].dy -= dy;
+        }
+      }
+
+      // Attraction
+      graph.forEachEdge((edge, _attrs, source, target) => {
+        const a = graph.getNodeAttributes(source);
+        const b = graph.getNodeAttributes(target);
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.01);
+        const force = (dist * dist) / k;
+        dx = (dx / dist) * force;
+        dy = (dy / dist) * force;
+        disp[source].dx += dx;
+        disp[source].dy += dy;
+        disp[target].dx -= dx;
+        disp[target].dy -= dy;
+      });
+
+      // Apply
+      nodes.forEach(n => {
+        const d = disp[n];
+        const dist = Math.max(Math.sqrt(d.dx * d.dx + d.dy * d.dy), 0.01);
+        const cap = Math.min(dist, temp);
+        const attrs = graph.getNodeAttributes(n);
+        graph.setNodeAttribute(n, "x", attrs.x + (d.dx / dist) * cap);
+        graph.setNodeAttribute(n, "y", attrs.y + (d.dy / dist) * cap);
+      });
+    }
+  }
+
+  reloadBtn.addEventListener("click", loadGraph);
+  loadGraph();
+})();
+</script>
+{% endblock %}

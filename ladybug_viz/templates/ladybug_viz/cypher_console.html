@@ -1,0 +1,108 @@
+{% extends "ladybug_viz/base.html" %}
+
+{% block title %}{{ db_name }} — Cypher Console{% endblock %}
+{% block nav_cypher_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title" id="page-title">
+    <span class="page-header__icon">⌨️</span>
+    Cypher Console
+  </h1>
+  <p class="page-header__subtitle">Execute Cypher queries against <strong>{{ db_name }}</strong></p>
+</div>
+
+<div class="cypher-editor" id="cypher-editor">
+  <textarea
+    id="cypher-input"
+    class="cypher-input"
+    rows="5"
+    placeholder="MATCH (n) RETURN n.* LIMIT 10"
+    spellcheck="false"
+  ></textarea>
+  <div class="cypher-actions">
+    <button class="btn btn--primary" id="run-cypher-btn">▶ Run Query</button>
+    <span class="cypher-status" id="cypher-status"></span>
+  </div>
+</div>
+
+<section class="section" id="cypher-results-section" style="display:none;">
+  <h2 class="section__title">Results</h2>
+  <div class="table-wrapper" id="cypher-results-wrapper">
+    <table class="data-table" id="cypher-results-table">
+      <thead><tr id="cypher-results-header"></tr></thead>
+      <tbody id="cypher-results-body"></tbody>
+    </table>
+  </div>
+  <div class="cypher-row-count" id="cypher-row-count"></div>
+</section>
+
+<section class="section cypher-error-section" id="cypher-error-section" style="display:none;">
+  <div class="error-box" id="cypher-error-box"></div>
+</section>
+
+<script>
+(function() {
+  const DB_NAME = "{{ db_name }}";
+  const input = document.getElementById("cypher-input");
+  const runBtn = document.getElementById("run-cypher-btn");
+  const status = document.getElementById("cypher-status");
+  const resultsSection = document.getElementById("cypher-results-section");
+  const errorSection = document.getElementById("cypher-error-section");
+  const errorBox = document.getElementById("cypher-error-box");
+  const thead = document.getElementById("cypher-results-header");
+  const tbody = document.getElementById("cypher-results-body");
+  const rowCount = document.getElementById("cypher-row-count");
+
+  async function runQuery() {
+    const query = input.value.trim();
+    if (!query) return;
+
+    status.textContent = "Running…";
+    runBtn.disabled = true;
+    resultsSection.style.display = "none";
+    errorSection.style.display = "none";
+
+    try {
+      const resp = await fetch(`/ladybug-viz/api/${DB_NAME}/cypher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await resp.json();
+
+      if (resp.ok) {
+        // Render results
+        const cols = data.columns || [];
+        thead.innerHTML = cols.map(c => `<th>${c}</th>`).join("");
+        tbody.innerHTML = (data.rows || []).map(row =>
+          "<tr>" + row.map(v => `<td>${v != null ? v : ""}</td>`).join("") + "</tr>"
+        ).join("");
+        rowCount.textContent = `${(data.rows || []).length} row(s) returned`;
+        resultsSection.style.display = "block";
+        status.textContent = "Done";
+      } else {
+        errorBox.textContent = data.detail || "Unknown error";
+        errorSection.style.display = "block";
+        status.textContent = "Error";
+      }
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorSection.style.display = "block";
+      status.textContent = "Error";
+    } finally {
+      runBtn.disabled = false;
+    }
+  }
+
+  runBtn.addEventListener("click", runQuery);
+  // Ctrl/Cmd + Enter to run
+  input.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runQuery();
+    }
+  });
+})();
+</script>
+{% endblock %}

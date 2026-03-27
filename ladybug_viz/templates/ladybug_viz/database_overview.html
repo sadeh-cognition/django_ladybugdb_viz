@@ -1,0 +1,82 @@
+{% extends "ladybug_viz/base.html" %}
+
+{% block title %}{{ db_name }} — Overview{% endblock %}
+{% block nav_overview_active %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title" id="page-title">
+    <span class="page-header__icon">📊</span>
+    Database Overview
+  </h1>
+  <p class="page-header__subtitle">
+    <strong>{{ total_node_tables }}</strong> node table{{ total_node_tables|pluralize }} · <strong>{{ total_rel_tables }}</strong> relationship table{{ total_rel_tables|pluralize }}
+  </p>
+</div>
+
+<!-- Stats row -->
+<div class="stats-row" id="stats-row">
+  <div class="stat-card stat-card--nodes">
+    <div class="stat-card__value">{{ total_node_tables }}</div>
+    <div class="stat-card__label">Node Tables</div>
+  </div>
+  <div class="stat-card stat-card--rels">
+    <div class="stat-card__value">{{ total_rel_tables }}</div>
+    <div class="stat-card__label">Relationship Tables</div>
+  </div>
+  <div class="stat-card stat-card--graph">
+    <a href="{% url 'ladybug_viz:graph_view' db_name %}" class="stat-card__action">
+      Open Graph View →
+    </a>
+  </div>
+</div>
+
+<!-- Node tables -->
+<section class="section" id="node-tables-section">
+  <h2 class="section__title">
+    <span class="badge badge--node">NODE</span> Tables
+  </h2>
+  <div class="card-grid">
+    {% for table in node_tables %}
+    <a href="{% url 'ladybug_viz:table_detail' db_name table.name %}" class="table-card" id="card-node-{{ table.name }}">
+      <div class="table-card__header">
+        <h3 class="table-card__name">{{ table.name }}</h3>
+        <span class="table-card__count">{{ table.count }} row{{ table.count|pluralize }}</span>
+      </div>
+      <div class="table-card__footer">
+        <span class="badge badge--node-sm">NODE</span>
+      </div>
+    </a>
+    {% empty %}
+    <p class="empty-state">No node tables found.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Relationship tables -->
+<section class="section" id="rel-tables-section">
+  <h2 class="section__title">
+    <span class="badge badge--rel">REL</span> Tables
+  </h2>
+  <div class="card-grid">
+    {% for table in rel_tables %}
+    <a href="{% url 'ladybug_viz:table_detail' db_name table.name %}" class="table-card table-card--rel" id="card-rel-{{ table.name }}">
+      <div class="table-card__header">
+        <h3 class="table-card__name">{{ table.name }}</h3>
+        <span class="table-card__count">{{ table.count }} row{{ table.count|pluralize }}</span>
+      </div>
+      <div class="table-card__body">
+        {% for conn in table.connections %}
+        <span class="connection-badge">{{ conn.source_table_name }} → {{ conn.destination_table_name }}</span>
+        {% endfor %}
+      </div>
+      <div class="table-card__footer">
+        <span class="badge badge--rel-sm">REL</span>
+      </div>
+    </a>
+    {% empty %}
+    <p class="empty-state">No relationship tables found.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}LadybugDB Viz{% endblock %}</title>
+  <meta name="description" content="Visualize and explore a LadybugDB graph database">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'ladybug_viz/style.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <nav class="topbar" id="topbar">
+    <div class="topbar__brand">
+      <svg class="topbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+      <a href="{% url 'ladybug_viz:database_overview' db_name %}" class="topbar__title">
+        LadybugDB <span class="topbar__db-name">{{ db_name }}</span>
+      </a>
+    </div>
+    <div class="topbar__nav">
+      <a href="{% url 'ladybug_viz:database_overview' db_name %}" class="topbar__link {% block nav_overview_active %}{% endblock %}" id="nav-overview">Overview</a>
+      <a href="{% url 'ladybug_viz:graph_view' db_name %}" class="topbar__link {% block nav_graph_active %}{% endblock %}" id="nav-graph">Graph</a>
+      <a href="{% url 'ladybug_viz:cypher_console' db_name %}" class="topbar__link {% block nav_cypher_active %}{% endblock %}" id="nav-cypher">Cypher</a>
+    </div>
+  </nav>
+
+  <main class="main-content" id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{% static 'ladybug_viz/app.js' %}"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

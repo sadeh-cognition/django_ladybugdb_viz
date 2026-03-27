@@ -1,0 +1,150 @@
+{% extends "ladybug_viz/base.html" %}
+
+{% block title %}{{ db_name }} — {{ table_name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header__breadcrumb">
+    <a href="{% url 'ladybug_viz:database_overview' db_name %}">← Overview</a>
+  </div>
+  <h1 class="page-header__title" id="page-title">
+    <span class="badge badge--{{ table_type|lower }}">{{ table_type }}</span>
+    {{ table_name }}
+  </h1>
+  <p class="page-header__subtitle">{{ total_count }} row{{ total_count|pluralize }} total</p>
+</div>
+
+{% if connections %}
+<section class="section" id="connection-section">
+  <h2 class="section__title">Connections</h2>
+  <div class="connection-list">
+    {% for conn in connections %}
+    <div class="connection-item">
+      <span class="connection-item__source">{{ conn.source_table_name }}</span>
+      <span class="connection-item__arrow">→</span>
+      <span class="connection-item__dest">{{ conn.destination_table_name }}</span>
+      <span class="connection-item__keys">({{ conn.source_table_primary_key }} → {{ conn.destination_table_primary_key }})</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<!-- Schema columns -->
+<section class="section" id="schema-section">
+  <h2 class="section__title">Schema</h2>
+  <div class="table-wrapper">
+    <table class="data-table" id="schema-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Column Name</th>
+          <th>Type</th>
+          <th>Default</th>
+          <th>Primary Key</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for col in columns %}
+        <tr>
+          <td class="mono">{{ col.property_id }}</td>
+          <td><strong>{{ col.name }}</strong></td>
+          <td><code>{{ col.type }}</code></td>
+          <td class="muted">{{ col.default_expression|default:"—" }}</td>
+          <td>{% if col.primary_key %}<span class="badge badge--pk">PK</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Data rows -->
+<section class="section" id="data-section">
+  <h2 class="section__title">Data</h2>
+  <div class="table-wrapper" id="rows-wrapper">
+    <table class="data-table" id="rows-table">
+      <thead>
+        <tr id="rows-header">
+          {% if rows %}
+            {% for key in rows.0.keys %}
+              <th>{{ key }}</th>
+            {% endfor %}
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody id="rows-body">
+        {% for row in rows %}
+        <tr>
+          {% for val in row.values %}
+            <td>{{ val }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination controls -->
+  <div class="pagination" id="pagination">
+    <button class="btn btn--secondary" id="prev-btn" disabled>← Previous</button>
+    <span class="pagination__info" id="pagination-info">
+      Showing 1–{{ rows|length }} of {{ total_count }}
+    </span>
+    <button class="btn btn--secondary" id="next-btn" {% if rows|length >= total_count %}disabled{% endif %}>Next →</button>
+  </div>
+</section>
+
+<script>
+  (function() {
+    const DB_NAME = "{{ db_name }}";
+    const TABLE_NAME = "{{ table_name }}";
+    const TABLE_TYPE = "{{ table_type }}";
+    const TOTAL = {{ total_count }};
+    const LIMIT = 50;
+    let offset = 0;
+
+    const prevBtn = document.getElementById("prev-btn");
+    const nextBtn = document.getElementById("next-btn");
+    const info = document.getElementById("pagination-info");
+    const tbody = document.getElementById("rows-body");
+    const thead = document.getElementById("rows-header");
+
+    function updateInfo() {
+      const start = offset + 1;
+      const end = Math.min(offset + LIMIT, TOTAL);
+      info.textContent = `Showing ${start}–${end} of ${TOTAL}`;
+      prevBtn.disabled = offset === 0;
+      nextBtn.disabled = offset + LIMIT >= TOTAL;
+    }
+
+    async function loadPage() {
+      const url = `/ladybug-viz/api/${DB_NAME}/tables/${TABLE_NAME}/rows?limit=${LIMIT}&offset=${offset}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+
+      if (!data.rows || data.rows.length === 0) return;
+
+      // Update header
+      const keys = Object.keys(data.rows[0]);
+      thead.innerHTML = keys.map(k => `<th>${k}</th>`).join("");
+
+      // Update body
+      tbody.innerHTML = data.rows.map(row =>
+        "<tr>" + keys.map(k => `<td>${row[k] != null ? row[k] : ""}</td>`).join("") + "</tr>"
+      ).join("");
+
+      updateInfo();
+    }
+
+    prevBtn.addEventListener("click", () => {
+      offset = Math.max(0, offset - LIMIT);
+      loadPage();
+    });
+    nextBtn.addEventListener("click", () => {
+      offset += LIMIT;
+      loadPage();
+    });
+  })();
+</script>
+{% endblock %}
