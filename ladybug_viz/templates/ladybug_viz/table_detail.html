@@ -33,7 +33,7 @@
 <!-- Schema columns -->
 <section class="section" id="schema-section">
   <h2 class="section__title">Schema</h2>
-  <div class="table-wrapper">
+  <div class="table-wrapper table-wrapper--compact" id="schema-table-wrapper">
     <table class="data-table" id="schema-table">
       <thead>
         <tr>
@@ -61,28 +61,36 @@
 
 <!-- Data rows -->
 <section class="section" id="data-section">
-  <h2 class="section__title">Data</h2>
-  <div class="table-wrapper" id="rows-wrapper">
-    <table class="data-table" id="rows-table">
-      <thead>
-        <tr id="rows-header">
-          {% if rows %}
-            {% for key in rows.0.keys %}
-              <th>{{ key }}</th>
-            {% endfor %}
-          {% endif %}
-        </tr>
-      </thead>
-      <tbody id="rows-body">
-        {% for row in rows %}
-        <tr>
-          {% for val in row.values %}
-            <td>{{ val }}</td>
+  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem;">
+    <h2 class="section__title" style="margin-bottom:0;">Data</h2>
+  </div>
+  
+  <div class="accordion-container" id="rows-body">
+    {% for row in rows %}
+    {% with row_idx=forloop.counter0 %}
+    <div class="card-accordion" data-accordion-id="row-{{ row_idx }}" id="accordion-summary-{{ row_idx }}">
+      <div class="card-accordion__summary">
+        <svg class="accordion-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,3 11,8 6,13"/></svg>
+        <div class="card-accordion__preview">
+          {% for field in row.preview_fields %}
+          <div class="preview-item">
+            <span class="preview-key">{{ field.key }}</span>
+            <span class="preview-val">{{ field.display_value }}</span>
+          </div>
           {% endfor %}
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </div>
+      </div>
+      <div class="card-accordion__body" id="accordion-body-{{ row_idx }}">
+        <div class="accordion-detail">
+          {% for field in row.fields %}
+          <span class="accordion-field-key">{{ field.key }}</span>
+          <span class="accordion-field-value">{{ field.display_value }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+    {% endfor %}
   </div>
 
   <!-- Pagination controls -->
@@ -95,6 +103,7 @@
   </div>
 </section>
 
+{{ preview_keys|json_script:"preview-keys-data" }}
 <script>
   (function() {
     const DB_NAME = "{{ db_name }}";
@@ -107,8 +116,86 @@
     const prevBtn = document.getElementById("prev-btn");
     const nextBtn = document.getElementById("next-btn");
     const info = document.getElementById("pagination-info");
-    const tbody = document.getElementById("rows-body");
-    const thead = document.getElementById("rows-header");
+    const tbody = document.getElementById("rows-body"); // The generic container id
+
+    /* -----------------------------------------------------------------------
+     * Accordion helpers
+     * --------------------------------------------------------------------- */
+    const CHEVRON_SVG = `<svg class="accordion-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,3 11,8 6,13"/></svg>`;
+
+    // Columns shown in the collapsed summary row
+    const PREVIEW_KEYS = JSON.parse(document.getElementById('preview-keys-data').textContent);
+
+    /** HTML-escape a value. */
+    function esc(v) {
+      return v != null ? String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+    }
+
+    function hasMeaningfulValue(v) {
+      if (v == null) return false;
+      return typeof v === "string" ? v.trim() !== "" : true;
+    }
+
+    function displayValue(v) {
+      if (v == null) return "—";
+      const text = String(v);
+      return text.trim() !== "" ? esc(text) : "—";
+    }
+
+    /** Build HTML string for a single data row. */
+    function buildAccordionRows(allKeys, row, idx) {
+      // Summary: only preview columns; fall back to all columns if none match.
+      const matched = PREVIEW_KEYS.filter(k => allKeys.includes(k));
+      const preferredKeys = matched.length > 0 ? matched : allKeys;
+      let previewKeys = preferredKeys.filter(k => hasMeaningfulValue(row[k]));
+
+      if (previewKeys.length === 0) {
+        previewKeys = allKeys.filter(k => hasMeaningfulValue(row[k]));
+      }
+      if (previewKeys.length === 0) {
+        previewKeys = preferredKeys;
+      }
+
+      const previewHtml = previewKeys.map(k => {
+        const val = displayValue(row[k]);
+        return `<div class="preview-item"><span class="preview-key">${k}</span><span class="preview-val">${val}</span></div>`;
+      }).join("");
+
+      // Detail: all columns
+      const fields = allKeys.map(k => {
+        const val = displayValue(row[k]);
+        return `<span class="accordion-field-key">${k}</span><span class="accordion-field-value">${val}</span>`;
+      }).join("");
+
+      return `
+        <div class="card-accordion" data-accordion-id="row-${idx}" id="accordion-summary-${idx}">
+          <div class="card-accordion__summary">
+            ${CHEVRON_SVG}
+            <div class="card-accordion__preview">
+              ${previewHtml}
+            </div>
+          </div>
+          <div class="card-accordion__body" id="accordion-body-${idx}">
+            <div class="accordion-detail">
+              ${fields}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /** Wire up click handlers for all .card-accordion elements. */
+    function bindAccordionHandlers() {
+      tbody.querySelectorAll(".card-accordion").forEach(card => {
+        const summary = card.querySelector(".card-accordion__summary");
+        if (summary) {
+          summary.addEventListener("click", () => {
+            const isOpen = card.classList.contains("is-open");
+            card.classList.toggle("is-open", !isOpen);
+          });
+        }
+      });
+    }
 
     function updateInfo() {
       const start = offset + 1;
@@ -125,15 +212,9 @@
 
       if (!data.rows || data.rows.length === 0) return;
 
-      // Update header
-      const keys = Object.keys(data.rows[0]);
-      thead.innerHTML = keys.map(k => `<th>${k}</th>`).join("");
-
-      // Update body
-      tbody.innerHTML = data.rows.map(row =>
-        "<tr>" + keys.map(k => `<td>${row[k] != null ? row[k] : ""}</td>`).join("") + "</tr>"
-      ).join("");
-
+      const allKeys = Object.keys(data.rows[0]);
+      tbody.innerHTML = data.rows.map((row, i) => buildAccordionRows(allKeys, row, i)).join("");
+      bindAccordionHandlers();
       updateInfo();
     }
 
@@ -145,6 +226,9 @@
       offset += LIMIT;
       loadPage();
     });
+
+    // Bind handlers for server-rendered rows (first page)
+    bindAccordionHandlers();
   })();
 </script>
 {% endblock %}

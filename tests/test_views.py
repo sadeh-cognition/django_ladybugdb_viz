@@ -48,6 +48,45 @@ class TestTableDetailView:
         assert "Knows" in content
         assert "REL" in content
 
+    def test_preview_falls_back_to_non_empty_fields(self, monkeypatch) -> None:
+        from ladybug_viz import views
+
+        client = Client()
+        row = {
+            "n.id": "   ",
+            "n.prefLabel": "\t",
+            "n.altLabels": None,
+            "n.definition": " ",
+            "n.content": "Visible preview text",
+        }
+
+        monkeypatch.setattr(
+            views.services,
+            "list_tables",
+            lambda db_path: [{"name": "Page", "type": "NODE"}],
+        )
+        monkeypatch.setattr(
+            views.services,
+            "get_table_info",
+            lambda db_path, table_name: [],
+        )
+        monkeypatch.setattr(
+            views.services,
+            "get_node_rows",
+            lambda db_path, table_name, limit=50, offset=0: [row],
+        )
+        monkeypatch.setattr(
+            views.services,
+            "get_node_count",
+            lambda db_path, table_name: 1,
+        )
+
+        resp = client.get("/ladybug-viz/test_db/table/Page/")
+        assert resp.status_code == 200
+        content = resp.content.decode()
+        assert '<span class="preview-key">n.content</span>' in content
+        assert "Visible preview text" in content
+
 
 @pytest.mark.django_db
 class TestGraphView:

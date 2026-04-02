@@ -200,6 +200,7 @@ def get_graph_data(
 
     # Collect edges
     edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str, str]] = set()
     for rt in rel_tables:
         conn_info = get_connection_info(db_path, rt["name"])
         if not conn_info:
@@ -220,7 +221,9 @@ def get_graph_data(
             d = dict(row)
             src_id = f"{src_table}:{d.get(f'a.{src_pk}', '')}"
             dst_id = f"{dst_table}:{d.get(f'b.{dst_pk}', '')}"
-            if src_id in node_id_set and dst_id in node_id_set:
+            edge_key = (src_id, dst_id, rt["name"])
+            if src_id in node_id_set and dst_id in node_id_set and edge_key not in seen_edges:
+                seen_edges.add(edge_key)
                 edge_attrs = {
                     k.replace("r.", ""): _serialise(v)
                     for k, v in d.items()

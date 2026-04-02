@@ -64,7 +64,7 @@
         sigmaInstance = null;
       }
 
-      const graph = new graphology.Graph();
+      const graph = new graphology.MultiGraph();
 
       // Discover unique table types for colour assignment
       const tableTypes = [...new Set(data.nodes.map(n => n.table))];
@@ -81,7 +81,7 @@
       const totalNodes = data.nodes.length;
       data.nodes.forEach((node, i) => {
         const angle = (2 * Math.PI * i) / totalNodes;
-        const radius = 100 + Math.random() * 20;
+        const radius = 300 + Math.random() * 100;
         const color = PALETTE[node.tableIndex % PALETTE.length];
         graph.addNode(node.id, {
           label: node.label,
@@ -94,40 +94,71 @@
         });
       });
 
-      // Add edges
+      // Add edges (deduplicate by source+target+label on the JS side too)
+      const seenEdgeKeys = new Set();
       let edgeIdx = 0;
       data.edges.forEach(edge => {
         if (graph.hasNode(edge.source) && graph.hasNode(edge.target)) {
-          const key = `e${edgeIdx++}`;
-          graph.addEdge(edge.source, edge.target, {
+          const edgeKey = `${edge.source}||${edge.target}||${edge.label}`;
+          if (seenEdgeKeys.has(edgeKey)) return;
+          seenEdgeKeys.add(edgeKey);
+          graph.addEdgeWithKey(`e${edgeIdx++}`, edge.source, edge.target, {
             label: edge.label,
-            size: 1.5,
-            color: "rgba(255,255,255,0.15)",
+            size: 0.5,
+            color: "rgba(255,255,255,0.6)",
             type: "arrow",
           });
         }
       });
 
       // Apply force layout (simple spring embedding)
-      forceLayout(graph, 100);
+      forceLayout(graph, 150);
 
       // Create Sigma instance
       sigmaInstance = new Sigma(graph, container, {
         renderLabels: true,
+        renderEdgeLabels: true,
         labelColor: { color: "#e2e8f0" },
         labelSize: 12,
-        defaultEdgeColor: "rgba(255,255,255,0.12)",
+        edgeLabelColor: "#a1a1aa",
+        edgeLabelSize: 10,
+        defaultEdgeColor: "rgba(255,255,255,0.5)",
         defaultNodeColor: "#6366f1",
-        minCameraRatio: 0.1,
-        maxCameraRatio: 10,
+        minCameraRatio: 0.01,
+        maxCameraRatio: 30,
+      });
+
+      let hoveredNode = null;
+      let hoveredNeighbors = new Set();
+
+      sigmaInstance.setSetting("nodeReducer", (node, data) => {
+        const res = { ...data };
+        if (hoveredNode && !hoveredNeighbors.has(node) && hoveredNode !== node) {
+          res.color = "rgba(100, 100, 100, 0.2)";
+          if (res.label) res.label = ""; // Hide label for non-neighbors
+        }
+        return res;
+      });
+
+      sigmaInstance.setSetting("edgeReducer", (edge, data) => {
+        const res = { ...data };
+        if (hoveredNode && !graph.extremities(edge).includes(hoveredNode)) {
+          res.color = "rgba(100, 100, 100, 0.1)";
+        }
+        return res;
       });
 
       // Hover tooltip
       sigmaInstance.on("enterNode", ({ node }) => {
+        hoveredNode = node;
+        hoveredNeighbors = new Set(graph.neighbors(node));
+        sigmaInstance.refresh();
+
         const attrs = graph.getNodeAttributes(node);
         let html = `<strong>${attrs.label}</strong><br><span class="tooltip-table">${attrs.table}</span>`;
         if (attrs.attributes) {
           for (const [k, v] of Object.entries(attrs.attributes)) {
+            if (k === 'source_chunk') continue;
             html += `<br><span class="tooltip-key">${k}:</span> ${v}`;
           }
         }
@@ -135,6 +166,9 @@
         tooltip.style.display = "block";
       });
       sigmaInstance.on("leaveNode", () => {
+        hoveredNode = null;
+        hoveredNeighbors.clear();
+        sigmaInstance.refresh();
         tooltip.style.display = "none";
       });
       container.addEventListener("mousemove", (e) => {
@@ -151,8 +185,8 @@
   /** Simple force-directed layout (Fruchterman-Reingold-ish). */
   function forceLayout(graph, iterations) {
     const nodes = graph.nodes();
-    const k = Math.sqrt((300 * 300) / nodes.length);
-    const temp0 = 50;
+    const k = Math.sqrt((3000 * 3000) / Math.max(nodes.length, 1));
+    const temp0 = 300;
 
     for (let iter = 0; iter < iterations; iter++) {
       const temp = temp0 * (1 - iter / iterations);
